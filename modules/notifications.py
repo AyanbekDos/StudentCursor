@@ -1,51 +1,43 @@
+# notifications.py
 from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.db import db
-
-# Константы для типов уведомлений
-NOTIFICATION_TYPES = {
-    "general": "🔔 Общее",
-    "schedule": "📅 Расписание",
-    "grade": "📝 Оценка",
-    "group": "👥 Группа",
-    "system": "⚙️ Система"
-}
+from localization.kz_text import NOTIFICATION_MESSAGES, NOTIFICATION_TYPES, SCHEDULE_NOTIFICATIONS, GROUP_MESSAGES
 
 # Обработчик команды /notifications
 async def cmd_notifications(message: types.Message):
     user = await db.get_user(message.from_user.id)
     
     if not user or user["status"] != "approved":
-        await message.answer("Вы не зарегистрированы в системе или ваша заявка еще не подтверждена.")
+        await message.answer(NOTIFICATION_MESSAGES["not_registered"])
         return
     
     # Получаем непрочитанные уведомления пользователя
     notifications = await db.get_unread_notifications(message.from_user.id)
     
     if not notifications:
-        await message.answer("У вас нет непрочитанных уведомлений.")
+        await message.answer(NOTIFICATION_MESSAGES["no_notifications"])
         return
     
     # Создаем инлайн-клавиатуру с кнопками для отметки уведомлений как прочитанных
     for notification in notifications:
         # Определяем тип уведомления для вывода соответствующей иконки
-        # Используем синтаксис словаря для доступа к полям sqlite3.Row
         notification_type = notification["notification_type"] if "notification_type" in notification.keys() else "general"
         type_prefix = NOTIFICATION_TYPES.get(notification_type, NOTIFICATION_TYPES["general"])
         
         # Для каждого уведомления создаем отдельное сообщение с кнопкой
         keyboard = InlineKeyboardMarkup()
         keyboard.add(InlineKeyboardButton(
-            "Отметить как прочитанное", 
+            NOTIFICATION_MESSAGES["mark_as_read"],
             callback_data=f"read_notification_{notification['id']}"
         ))
         
         # Отправляем уведомление с кнопкой
         await message.answer(
             f"{type_prefix} {notification['message']}\n\n"
-            f"(Уведомление от {notification['created_at']})",
+            f"{NOTIFICATION_MESSAGES['notification_from'].format(date=notification['created_at'])}",
             reply_markup=keyboard
         )
 
@@ -65,7 +57,7 @@ async def process_read_notification(callback_query: types.CallbackQuery):
         pass
     
     # Отвечаем на callback
-    await callback_query.answer("Уведомление отмечено как прочитанное")
+    await callback_query.answer(NOTIFICATION_MESSAGES["marked_as_read"])
 
 # Отправка уведомления всем студентам группы
 async def send_group_notification(bot, group_code, message_text, notification_type="general"):
@@ -95,11 +87,26 @@ async def send_schedule_notification(bot, group_code, change_type, weekday, time
     
     # Формируем сообщение в зависимости от типа изменения
     if change_type == "add":
-        message = f"В расписание группы {group_code} добавлено новое занятие:\n{weekday}, {time} - {subject}"
+        message = SCHEDULE_NOTIFICATIONS["lesson_added"].format(
+            group_code=group_code,
+            weekday=weekday,
+            time=time,
+            subject=subject
+        )
     elif change_type == "update":
-        message = f"В расписание группы {group_code} внесены изменения:\n{weekday}, {time} - {subject}"
+        message = SCHEDULE_NOTIFICATIONS["lesson_updated"].format(
+            group_code=group_code,
+            weekday=weekday,
+            time=time,
+            subject=subject
+        )
     elif change_type == "delete":
-        message = f"Из расписания группы {group_code} удалено занятие:\n{weekday}, {time} - {subject}"
+        message = SCHEDULE_NOTIFICATIONS["lesson_deleted"].format(
+            group_code=group_code,
+            weekday=weekday,
+            time=time,
+            subject=subject
+        )
     
     if message:
         # Отправляем уведомления всем студентам группы
@@ -113,7 +120,7 @@ async def send_personal_notification(bot, student_id, message_text, notification
     try:
         await db.add_notification(student_id, message_text, notification_type)
     except Exception as e:
-        print(f"[ОШИБКА] Не удалось добавить уведомление в базу: {e}")
+        print(f"[ҚАТЕ] Хабарламаны дерекқорға қосу сәтсіз болды: {e}")
         return False
     
     # Определяем префикс уведомления
@@ -126,22 +133,25 @@ async def send_personal_notification(bot, student_id, message_text, notification
     except Exception as e:
         error_message = str(e)
         if "bot was blocked by the user" in error_message:
-            print(f"[ОШИБКА] Студент (ID: {student_id}) заблокировал бота")
+            print(f"[ҚАТЕ] Студент (ID: {student_id}) ботты бұғаттады")
         elif "chat not found" in error_message:
-            print(f"[ОШИБКА] Чат со студентом (ID: {student_id}) не найден. Возможно, студент не начал диалог с ботом")
+            print(f"[ҚАТЕ] Студентпен чат (ID: {student_id}) табылмады. Студент ботпен сөйлесуді бастамаған шығар")
         else:
-            print(f"[ОШИБКА] Не удалось отправить уведомление студенту (ID: {student_id}): {e}")
+            print(f"[ҚАТЕ] Студентке хабарлама жіберу сәтсіз болды (ID: {student_id}): {e}")
         return False
 
 # Отправка уведомления о переводе в другую группу
 async def send_group_change_notification(bot, student_id, old_group, new_group):
-    message = f"Вы были переведены из группы {old_group} в группу {new_group}."
+    message = GROUP_MESSAGES["group_transfer_notification"].format(
+        old_group=old_group,
+        new_group=new_group
+    )
     return await send_personal_notification(bot, student_id, message, "group")
 
 # Регистрация обработчиков в диспетчере
 def register_handlers(dp):
     dp.register_message_handler(cmd_notifications, commands=["notifications"])
     dp.register_callback_query_handler(
-        process_read_notification, 
+        process_read_notification,
         lambda c: c.data.startswith("read_notification_")
-    ) 
+    )

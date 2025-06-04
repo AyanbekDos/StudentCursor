@@ -50,12 +50,21 @@ class Database:
             )
             await db.commit()
             
-    async def update_user_group(self, telegram_id, group_code):
-        """Изменение группы студента"""
+    async def delete_user(self, telegram_id):
+        """Удаление пользователя из базы данных"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM users WHERE telegram_id = ?",
+                (telegram_id,)
+            )
+            await db.commit()
+            
+    async def update_user_group(self, telegram_id, new_group_code):
+        """Обновляет группу пользователя"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "UPDATE users SET group_code = ?, updated_at = CURRENT_TIMESTAMP WHERE telegram_id = ?",
-                (group_code, telegram_id)
+                (new_group_code, telegram_id)
             )
             await db.commit()
             
@@ -370,5 +379,55 @@ class Database:
                     subjects = await cursor.fetchall()
                     return [subject['subject'] for subject in subjects]
                 
+    async def delete_user(self, telegram_id):
+        """Удаление пользователя из базы данных"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Удаляем пользователя
+            await db.execute(
+                "DELETE FROM users WHERE telegram_id = ?",
+                (telegram_id,)
+            )
+            # Удаляем все уведомления пользователя
+            await db.execute(
+                "DELETE FROM notifications WHERE user_id = ?",
+                (telegram_id,)
+            )
+            # Удаляем все записи о посещаемости пользователя (если это студент)
+            await db.execute(
+                "DELETE FROM attendance WHERE student_id = ?",
+                (telegram_id,)
+            )
+            # Удаляем все оценки пользователя (если это студент)
+            await db.execute(
+                "DELETE FROM grades WHERE student_id = ?",
+                (telegram_id,)
+            )
+            await db.commit()
+            return True
+
+    async def delete_group(self, group_code):
+        """Удаляет группу и все связанные с ней данные"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Удаляем расписание группы
+            await db.execute(
+                "DELETE FROM schedule WHERE group_code = ?",
+                (group_code,)
+            )
+            
+            # Удаляем изменения расписания группы
+            await db.execute(
+                "DELETE FROM schedule_changes WHERE group_code = ?",
+                (group_code,)
+            )
+            
+            # Удаляем саму группу
+            await db.execute(
+                "DELETE FROM groups WHERE group_code = ?",
+                (group_code,)
+            )
+            
+            await db.commit()
+            return True
+
 # Создание экземпляра базы данных
 db = Database()

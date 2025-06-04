@@ -1,3 +1,4 @@
+# bot.py
 import logging
 import asyncio
 import sys
@@ -6,11 +7,13 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import BotCommand
+from aiogram.dispatcher import FSMContext
 
 from config import BOT_TOKEN, DATABASE_PATH
 from database.db import db
 from modules import registration, schedule, grades, notifications, attendance
 from modules.keyboards import BUTTON_COMMANDS
+from localization.kz_text import MESSAGES
 
 # Настройка логирования
 logging.basicConfig(
@@ -33,82 +36,112 @@ def setup_bot():
     attendance.register_handlers(dp)
     
     # Обработчики для кнопок меню
-    @dp.message_handler(lambda message: message.text == "📊 Расписание")
-    async def schedule_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "📊 Сабақ кестесі", state="*")
+    async def schedule_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /schedule
-        state = dp.current_state(user=message.from_user.id)
-        await schedule.cmd_schedule(message, state)
+        current_state = dp.current_state(user=message.from_user.id)
+        await schedule.cmd_schedule(message, current_state)
     
-    @dp.message_handler(lambda message: message.text == "📝 Оценки" or message.text == "📝 Выставить оценки")
-    async def grades_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "📝 Бағалар" or message.text == "📝 Баға қою", state="*")
+    async def grades_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /grades
-        state = dp.current_state(user=message.from_user.id)
-        await grades.cmd_grades(message, state)
+        current_state = dp.current_state(user=message.from_user.id)
+        await grades.cmd_grades(message, current_state)
     
-    @dp.message_handler(lambda message: message.text == "🔔 Уведомления")
-    async def notifications_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "🔔 Хабарламалар", state="*")
+    async def notifications_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /notifications
         await notifications.cmd_notifications(message)
     
-    @dp.message_handler(lambda message: message.text == "📸 Отметиться")
-    async def checkin_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "📸 Белгілеу", state="*")
+    async def checkin_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /checkin
         try:
             from modules.attendance import cmd_checkin
-            state = dp.current_state(user=message.from_user.id)
-            await cmd_checkin(message, state)
+            current_state = dp.current_state(user=message.from_user.id)
+            await cmd_checkin(message, current_state)
         except (ImportError, AttributeError):
-            await message.answer("Функция отметки посещаемости недоступна.")
+            await message.answer("Қатысуды белгілеу функциясы қолжетімсіз.")
     
-    @dp.message_handler(lambda message: message.text == "📋 Заявки")
-    async def requests_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "📋 Өтініштер", state="*")
+    async def requests_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /requests
         try:
             from modules.registration import cmd_requests
-            state = dp.current_state(user=message.from_user.id)
-            await cmd_requests(message, state)
+            current_state = dp.current_state(user=message.from_user.id)
+            await cmd_requests(message, current_state)
         except (ImportError, AttributeError):
-            await message.answer("Функция просмотра заявок недоступна.")
+            await message.answer("Өтініштерді қарау функциясы қолжетімсіз.")
     
-    @dp.message_handler(lambda message: message.text == "👥 Управление группами")
-    async def manage_groups_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "👥 Топтарды басқару", state="*")
+    async def manage_groups_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /manage_groups
         try:
             from modules.registration import cmd_manage_groups
-            state = dp.current_state(user=message.from_user.id)
-            await cmd_manage_groups(message, state)
+            current_state = dp.current_state(user=message.from_user.id)
+            await cmd_manage_groups(message, current_state)
         except (ImportError, AttributeError):
-            await message.answer("Функция управления группами недоступна.")
+            await message.answer("Топтарды басқару функциясы қолжетімсіз.")
     
-    @dp.message_handler(lambda message: message.text == "🔄 Создать QR-код")
-    async def qr_button_handler(message: types.Message):
+    @dp.message_handler(lambda message: message.text == "🔄 QR-код жасау", state="*")
+    async def qr_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
         # Перенаправляем на команду /qr
         try:
             from modules.attendance import cmd_qr
-            state = dp.current_state(user=message.from_user.id)
-            await cmd_qr(message, state)
+            current_state = dp.current_state(user=message.from_user.id)
+            await cmd_qr(message, current_state)
         except (ImportError, AttributeError):
-            await message.answer("Функция создания QR-кода недоступна.")
+            await message.answer("QR-код жасау функциясы қолжетімсіз.")
+    
+    @dp.message_handler(lambda message: message.text == "🗑️ Профильді өшіру", state="*")
+    async def delete_profile_button_handler(message: types.Message, state: FSMContext):
+        # Сбрасываем текущее состояние
+        await state.finish()
+        # Перенаправляем на команду /delete_profile
+        try:
+            from modules.registration import cmd_delete_profile
+            current_state = dp.current_state(user=message.from_user.id)
+            await cmd_delete_profile(message, current_state)
+        except (ImportError, AttributeError):
+            await message.answer("Профильді өшіру функциясы қолжетімсіз.")
     
     # Обработчик для неизвестных команд и сообщений
-    @dp.message_handler()
-    async def unknown_message(message: types.Message):
-        await message.answer(
-            "Я не понимаю эту команду. Пожалуйста, используйте команды из меню."
-        )
+    @dp.message_handler(state="*")
+    async def unknown_message(message: types.Message, state: FSMContext):
+        # Сбрасываем состояние для неизвестных сообщений
+        current_state_name = await state.get_state()
+        if current_state_name:
+            logger.warning(f"Неизвестное сообщение в состоянии {current_state_name}: {message.text}")
+            await state.finish()
+        await message.answer(MESSAGES["unknown_command"])
     
     return bot, dp
 
 # Установка команд бота
 async def set_commands(bot):
     commands = [
-        BotCommand(command="/start", description="Начать работу с ботом"),
-        BotCommand(command="/schedule", description="Расписание занятий"),
-        BotCommand(command="/grades", description="Мои оценки"),
-        BotCommand(command="/notifications", description="Уведомления"),
-        BotCommand(command="/requests", description="Заявки на регистрацию (для преподавателей)"),
-        BotCommand(command="/manage_groups", description="Управление группами (для преподавателей)"),
-        BotCommand(command="/qr", description="Создать QR-код для отметки посещаемости (для преподавателей)")
+        BotCommand(command="/start", description="Ботпен жұмысты бастау"),
+        BotCommand(command="/schedule", description="Сабақ кестесі"),
+        BotCommand(command="/grades", description="Менің бағаларым"),
+        BotCommand(command="/notifications", description="Хабарламалар"),
+        BotCommand(command="/requests", description="Тіркеуге өтініштер (оқытушылар үшін)"),
+        BotCommand(command="/manage_groups", description="Топтарды басқару (оқытушылар үшін)"),
+        BotCommand(command="/qr", description="Қатысуды белгілеу үшін QR-код жасау (оқытушылар үшін)"),
+        BotCommand(command="/delete_profile", description="Профильді өшіру (студенттер үшін)")
     ]
     await bot.set_my_commands(commands)
 
@@ -120,26 +153,26 @@ async def on_startup(dispatcher):
     # Инициализация базы данных
     try:
         await db.init()
-        logger.info("База данных успешно инициализирована")
+        logger.info("Дерекқор сәтті инициализацияланды")
     except Exception as e:
-        logger.error(f"Ошибка при инициализации базы данных: {e}")
+        logger.error(f"Дерекқорды инициализациялауда қате: {e}")
         sys.exit(1)
     
     # Установка команд бота
     bot = dispatcher.bot
     await set_commands(bot)
-    logger.info("Бот успешно запущен")
+    logger.info("Бот сәтті іске қосылды")
 
 # Точка входа
 if __name__ == '__main__':
     # Проверяем аргументы командной строки
     if len(sys.argv) > 1 and sys.argv[1] == "--generate-fake-data":
         # Запускаем генерацию тестовых данных
-        logger.info("Запуск генерации тестовых данных...")
+        logger.info("Тестілік деректерді генерациялау басталды...")
         from modules.fake_data import run_fake_data_generation
         asyncio.run(run_fake_data_generation())
-        logger.info("Команда генерации тестовых данных завершена")
+        logger.info("Тестілік деректерді генерациялау командасы аяқталды")
     else:
         # Запускаем бота
         bot, dp = setup_bot()
-        executor.start_polling(dp, on_startup=on_startup, skip_updates=True) 
+        executor.start_polling(dp, on_startup=on_startup, skip_updates=True)

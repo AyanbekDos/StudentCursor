@@ -1,3 +1,4 @@
+# attendance.py
 import json
 import logging
 import io
@@ -12,6 +13,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 
 from config import QR_CODE_VALIDITY_MINUTES
 from database.db import db
+from localization.kz_text import ATTENDANCE_MESSAGES, BUTTONS
+from modules.keyboards import get_student_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +27,9 @@ class QRGenerationStates(StatesGroup):
 async def generate_qr_code(group_id, subject):
     """
     Генерирует QR-код с данными о посещаемости
-    
     Args:
         group_id (int): ID группы
         subject (str): Название предмета
-        
     Returns:
         BytesIO: Изображение QR-кода в байтовом формате
     """
@@ -76,14 +77,14 @@ async def cmd_qr(message: types.Message, state: FSMContext):
     
     # Проверяем, что пользователь - преподаватель
     if not user or user['role'] != 'teacher':
-        await message.answer("Эта команда доступна только для преподавателей.")
+        await message.answer(ATTENDANCE_MESSAGES["teacher_only_qr"])
         return
     
     # Получаем список групп для преподавателя
     groups = await db.get_groups_for_teacher(message.from_user.id)
     
     if not groups:
-        await message.answer("У вас нет назначенных групп. Пожалуйста, сначала добавьте группу.")
+        await message.answer(ATTENDANCE_MESSAGES["no_groups_teacher"])
         return
     
     # Создаем клавиатуру для выбора группы
@@ -91,7 +92,7 @@ async def cmd_qr(message: types.Message, state: FSMContext):
     for group_id, group_name in groups:
         keyboard.add(InlineKeyboardButton(text=group_name, callback_data=f"qr_group_{group_id}"))
     
-    await message.answer("Выберите группу для генерации QR-кода:", reply_markup=keyboard)
+    await message.answer(ATTENDANCE_MESSAGES["choose_group_qr"], reply_markup=keyboard)
     await QRGenerationStates.waiting_for_group.set()
 
 # Обработчик выбора группы
@@ -109,7 +110,7 @@ async def process_group_selection(callback_query: types.CallbackQuery, state: FS
     subjects = await db.get_subjects_for_group(group_id)
     
     if not subjects:
-        await callback_query.message.answer("Для этой группы не найдено предметов в расписании. Пожалуйста, сначала добавьте расписание.")
+        await callback_query.message.answer(ATTENDANCE_MESSAGES["no_subjects_group"])
         await state.finish()
         return
     
@@ -118,7 +119,7 @@ async def process_group_selection(callback_query: types.CallbackQuery, state: FS
     for subject in subjects:
         keyboard.add(InlineKeyboardButton(text=subject, callback_data=f"qr_subject_{subject}"))
     
-    await callback_query.message.answer("Выберите предмет:", reply_markup=keyboard)
+    await callback_query.message.answer(ATTENDANCE_MESSAGES["choose_subject_qr"], reply_markup=keyboard)
     await QRGenerationStates.waiting_for_subject.set()
     
     # Отвечаем на callback_query, чтобы убрать часы загрузки
@@ -142,9 +143,7 @@ async def process_subject_selection(callback_query: types.CallbackQuery, state: 
     # Отправляем QR-код преподавателю
     await callback_query.message.answer_photo(
         qr_image,
-        caption=f"🧾 Покажите этот QR-код студентам на экране.\n"
-                f"Студенты должны сфотографировать его и отправить фото в этот бот.\n"
-                f"QR-код действителен в течение {QR_CODE_VALIDITY_MINUTES} минут."
+        caption=ATTENDANCE_MESSAGES["qr_generated"].format(minutes=QR_CODE_VALIDITY_MINUTES)
     )
     
     # Завершаем состояние
@@ -160,8 +159,9 @@ async def process_photo(message: types.Message):
     """
     # Проверяем, что пользователь - студент
     user = await db.get_user(message.from_user.id)
+    
     if not user or user['role'] != 'student' or user['status'] != 'approved':
-        await message.answer("Эта функция доступна только для подтвержденных студентов.")
+        await message.answer(ATTENDANCE_MESSAGES["approved_students_only"])
         return
     
     student_telegram_id = message.from_user.id
@@ -189,7 +189,7 @@ async def process_photo(message: types.Message):
                 status="ERROR_INVALID_QR",
                 group_id=None
             )
-            await message.answer("❌ Не удалось распознать QR-код. Попробуйте еще раз.")
+            await message.answer(ATTENDANCE_MESSAGES["qr_not_recognized"])
             return
         
         # Берем первый найденный QR-код
@@ -209,7 +209,7 @@ async def process_photo(message: types.Message):
                     status="ERROR_INVALID_QR",
                     group_id=None
                 )
-                await message.answer("❌ Неверный тип QR-кода.")
+                await message.answer(ATTENDANCE_MESSAGES["invalid_qr_type"])
                 return
             
             # Извлекаем данные из QR-кода
@@ -230,7 +230,7 @@ async def process_photo(message: types.Message):
                     status="ERROR_EXPIRED",
                     group_id=group_id_from_qr
                 )
-                await message.answer("❌ QR-код просрочен.")
+                await message.answer(ATTENDANCE_MESSAGES["qr_expired"])
                 return
             
             # Проверка группы студента
@@ -245,7 +245,7 @@ async def process_photo(message: types.Message):
                     status="ERROR_GROUP_MISMATCH",
                     group_id=group_id_from_qr
                 )
-                await message.answer("❌ Этот QR-код предназначен для другой группы.")
+                await message.answer(ATTENDANCE_MESSAGES["wrong_group"])
                 return
             
             # Проверка на дубликат
@@ -258,7 +258,7 @@ async def process_photo(message: types.Message):
                     status="ERROR_DUPLICATE",
                     group_id=group_id_from_qr
                 )
-                await message.answer("❌ Вы уже отметились на это занятие.")
+                await message.answer(ATTENDANCE_MESSAGES["already_checked"])
                 return
             
             # Все проверки пройдены, записываем успешную отметку
@@ -272,7 +272,7 @@ async def process_photo(message: types.Message):
             )
             
             # Отправляем сообщение об успешной отметке
-            await message.answer("✅ Ваша отметка о присутствии сохранена!")
+            await message.answer(ATTENDANCE_MESSAGES["attendance_saved"])
             
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             # Ошибка при парсинге данных QR-кода
@@ -285,65 +285,37 @@ async def process_photo(message: types.Message):
                 status="ERROR_INVALID_QR",
                 group_id=None
             )
-            await message.answer("❌ Не удалось распознать данные в QR-коде. Попробуйте еще раз.")
+            await message.answer(ATTENDANCE_MESSAGES["attendance_error"])
             
     except Exception as e:
         logger.error(f"Ошибка при обработке фото: {e}")
-        await message.answer("❌ Произошла ошибка при обработке фотографии. Попробуйте еще раз.")
+        await message.answer(ATTENDANCE_MESSAGES["photo_error"])
 
-# Обработчик команды /checkin и кнопки "Отметиться"
+# Обработчик команды /checkin и кнопки "Белгілеу"
 async def cmd_checkin(message: types.Message, state: FSMContext):
     """
-    Обрабатывает команду /checkin и нажатие на кнопку "Отметиться"
+    Обрабатывает команду /checkin и нажатие на кнопку "Белгілеу"
     Показывает инструкцию по отметке посещаемости
     """
     user = await db.get_user(message.from_user.id)
     
     # Проверяем, что пользователь - студент
     if not user or user['role'] != 'student':
-        await message.answer("Эта функция доступна только для студентов.")
+        await message.answer(ATTENDANCE_MESSAGES["student_only_checkin"])
         return
     
     # Получаем клавиатуру студента
     keyboard = get_student_keyboard()
     
     # Инструкция по отметке посещаемости
-    instructions = """Инструкция по отметке посещаемости:
-
-1. Попросите преподавателя показать QR-код для отметки посещаемости.
-
-2. Сфотографируйте QR-код и отправьте фотографию в этот чат.
-
-3. Убедитесь, что QR-код хорошо виден на фотографии и не размыт.
-
-4. Система автоматически обработает фотографию и отметит ваше присутствие на занятии.
-
-5. Вы получите уведомление об успешной отметке или ошибке.
-
-Важно: QR-код действителен только в течение {QR_CODE_VALIDITY_MINUTES} минут после генерации.
-
-Для отметки просто отправьте фотографию QR-кода в этот чат."""
+    instructions = ATTENDANCE_MESSAGES["checkin_instructions"].format(minutes=QR_CODE_VALIDITY_MINUTES)
     
     await message.answer(instructions, reply_markup=keyboard)
-
-# Функция для добавления кнопки "Отметиться" в клавиатуру студента
-def get_student_keyboard():
-    """
-    Создает клавиатуру для студента с кнопкой "Отметиться"
-    
-    Returns:
-        ReplyKeyboardMarkup: Клавиатура с кнопками
-    """
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(KeyboardButton("📊 Расписание"), KeyboardButton("📝 Оценки"))
-    keyboard.add(KeyboardButton("🔔 Уведомления"), KeyboardButton("📸 Отметиться"))
-    return keyboard
 
 # Регистрация обработчиков
 def register_handlers(dp):
     """
     Регистрирует обработчики для модуля посещаемости
-    
     Args:
         dp: Диспетчер бота
     """
